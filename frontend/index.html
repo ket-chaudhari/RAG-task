@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG AI Assistant</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="app">
+
+    <header>
+        <div class="logo">📚</div>
+        <div>
+            <h1>RAG AI Assistant</h1>
+            <p>Ask questions from your documents</p>
+        </div>
+    </header>
+
+    <main>
+
+        <section class="upload-card">
+
+            <h2>Upload Document</h2>
+            <p class="subtitle">Upload a PDF or TXT file to start chatting.</p>
+
+            <div class="drop-area" id="dropArea">
+
+                <div class="upload-icon">📄</div>
+
+                <h3>Drop your document here</h3>
+
+                <p>or</p>
+
+                <label for="fileInput" class="choose-btn">
+                    Choose File
+                </label>
+
+                <input
+                    type="file"
+                    id="fileInput"
+                    accept=".pdf,.txt"
+                    hidden
+                >
+
+                <p id="fileName">No file selected</p>
+
+            </div>
+
+            <button id="uploadBtn" class="primary-btn">
+                Upload Document
+            </button>
+
+            <div id="uploadStatus" class="status"></div>
+
+        </section>
+
+
+        <section class="chat-card">
+
+            <div class="chat-header">
+                <div>
+                    <h2>💬 Ask Your Document</h2>
+                    <p>Ask anything about the uploaded document.</p>
+                </div>
+
+                <span id="documentStatus" class="badge">
+                    No document
+                </span>
+            </div>
+
+
+            <div id="chatMessages" class="chat-messages">
+
+                <div class="welcome">
+                    <div class="bot-icon">🤖</div>
+
+                    <h3>Hello! 👋</h3>
+
+                    <p>
+                        Upload a document and ask me questions
+                        about its content.
+                    </p>
+                </div>
+
+            </div>
+
+
+            <div class="question-area">
+
+                <textarea
+                    id="questionInput"
+                    placeholder="Ask something about your document..."
+                    rows="3"
+                ></textarea>
+
+                <button id="askBtn" class="primary-btn">
+                    Ask AI
+                </button>
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <footer>
+        RAG AI Assistant • FastAPI + Embeddings + FAISS + AI
+    </footer>
+
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
