@@ -1,6 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from collections import defaultdict
+import time
+import os
 
 from preprocessing import extract_text, chunk_text
 from embedding import create_embeddings, store_embeddings, search_similar
@@ -11,9 +14,9 @@ app = FastAPI(
     description="Document based Question Answering API"
 )
 
-# =========================
+# =====================================================
 # CORS
-# =========================
+# =====================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,66 +26,95 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================
+# =====================================================
 # STORAGE
-# =========================
+# =====================================================
 
 chunks = []
+request_times = defaultdict(list)
+
+# =====================================================
+# RATE LIMITING
+# =====================================================
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    ip = request.client.host
+    now = time.time()
+
+    request_times[ip] = [
+        t for t in request_times[ip]
+        if now - t < 60
+    ]
+
+    # Don't rate-limit OPTIONS requests
+    if request.method != "OPTIONS":
+        if len(request_times[ip]) >= 20:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={"error": "Too many requests. Try again later."}
+            )
+
+        request_times[ip].append(now)
+
+    return await call_next(request)
 
 
-# =========================
+# =====================================================
 # HOME
-# =========================
+# =====================================================
 
 @app.get("/")
 def home():
     return {
-        "message": "RAG API is running"
+        "message": "RAG API is running",
+        "docs": "/docs"
     }
 
 
-# =========================
+# =====================================================
 # HEALTH
-# =========================
+# =====================================================
 
 @app.get("/health")
 def health():
     return {
-        "status": "healthy"
+        "status": "healthy",
+        "document_loaded": len(chunks) > 0,
+        "chunks": len(chunks)
     }
 
 
-# =========================
-# TEST
-# =========================
-
-@app.get("/test")
-def test():
-    return {
-        "message": "Test route working"
-    }
-
-
-# =========================
-# DOCUMENT PROCESSING
-# =========================
+# =====================================================
+# PROCESS DOCUMENT
+# =====================================================
 
 def process_document(text: str):
     global chunks
 
-    chunks = chunk_text(text)
+    new_chunks = chunk_text(text)
 
-    embeddings = create_embeddings(chunks)
+    if not new_chunks:
+        return
 
-    store_embeddings(
-        embeddings,
-        chunks
-    )
+    embeddings = create_embeddings(new_chunks)
+    store_embeddings(embeddings, new_chunks)
+
+    chunks = new_chunks
 
 
-# =========================
-# UPLOAD
-# =========================
+# =====================================================
+# REQUEST MODEL
+# =====================================================
+
+class Question(BaseModel):
+    question: str
+
+
+# =====================================================
+# UPLOAD DOCUMENT
+# =====================================================
 
 @app.post("/upload")
 async def upload_file(
@@ -92,34 +124,24 @@ async def upload_file(
 
     filename = file.filename.lower()
 
-    if not filename.endswith((".pdf", ".txt")):
+    if not (filename.endswith(".pdf") or filename.endswith(".txt")):
         return {
             "success": False,
-            "error": "Only PDF and TXT files are allowed."
+            "error": "Only PDF and TXT files are supported."
         }
 
-    content = await file.read()
-
     try:
+        content = await file.read()
 
         if filename.endswith(".pdf"):
-
-            text = extract_text(
-                content,
-                file_type="pdf"
-            )
-
+            text = extract_text(content, file_type="pdf")
         else:
+            text = content.decode("utf-8")
 
-            text = content.decode(
-                "utf-8",
-                errors="ignore"
-            )
-
-        if not text.strip():
+        if not text or not text.strip():
             return {
                 "success": False,
-                "error": "No readable text found in document."
+                "error": "Could not extract text from the document."
             }
 
         background_tasks.add_task(
@@ -130,33 +152,23 @@ async def upload_file(
         return {
             "success": True,
             "message": "Document uploaded successfully.",
-            "status": "Processing started."
+            "filename": file.filename,
+            "status": "Processing document..."
         }
 
     except Exception as e:
-
         return {
             "success": False,
             "error": str(e)
         }
 
 
-# =========================
-# QUESTION MODEL
-# =========================
-
-class Question(BaseModel):
-    question: str
-
-
-# =========================
+# =====================================================
 # ASK QUESTION
-# =========================
+# =====================================================
 
 @app.post("/ask")
 def ask_question(req: Question):
-
-    global chunks
 
     question = req.question.strip()
 
@@ -169,7 +181,7 @@ def ask_question(req: Question):
     if not chunks:
         return {
             "success": False,
-            "error": "No document is ready. Please upload a document first and wait for processing."
+            "error": "No document is loaded. Please upload a document first."
         }
 
     try:
@@ -180,15 +192,14 @@ def ask_question(req: Question):
         )
 
         if not top_chunks:
-
             return {
                 "success": False,
-                "error": "No relevant information found in the document."
+                "error": "No relevant information found."
             }
 
         context = "\n\n".join(top_chunks)
 
-        # Simple answer using retrieved document context
+        # Simple document-based answer
         answer = (
             "Based on the uploaded document:\n\n"
             + context[:1500]
