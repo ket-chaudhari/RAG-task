@@ -1,9 +1,14 @@
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from collections import defaultdict
-import time
+from dotenv import load_dotenv
+
 import os
+import time
+import pickle
+import faiss
 
 from preprocessing import extract_text, chunk_text
 from embedding import (
@@ -15,59 +20,111 @@ from embedding import (
 from openai import OpenAI
 
 
+# =========================================================
+# LOAD ENVIRONMENT VARIABLES
+# =========================================================
+
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not OPENAI_API_KEY:
+    print("WARNING: OPENAI_API_KEY not found.")
+    client = None
+else:
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# =========================================================
+# FASTAPI APP
+# =========================================================
+
 app = FastAPI(
-    title="RAG API",
-    description="PDF/TXT document question answering API",
-    version="1.0.0"
+    title="RAG AI Assistant",
+    description="PDF/TXT based Retrieval Augmented Generation API",
+    version="1.0"
 )
 
 
-# =====================================================
-# ROOT
-# =====================================================
+# =========================================================
+# CORS
+# =========================================================
 
-@app.get("/")
-def home():
-    return {
-        "message": "RAG API is running",
-        "docs": "/docs",
-        "health": "/health"
-    }
-
-
-# =====================================================
-# HEALTH
-# =====================================================
-
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy",
-        "document_loaded": len(chunks) > 0
-    }
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-# =====================================================
-# OPENAI
-# =====================================================
-
-api_key = os.getenv("OPENAI_API_KEY")
-
-client = OpenAI(api_key=api_key) if api_key else None
-
-
-# =====================================================
+# =========================================================
 # STORAGE
-# =====================================================
+# =========================================================
 
 chunks = []
-
 request_times = defaultdict(list)
 
 
-# =====================================================
-# RATE LIMIT
-# =====================================================
+# =========================================================
+# LOAD EXISTING FAISS DATA
+# =========================================================
+
+def load_existing_data():
+
+    global chunks
+
+    try:
+
+        if os.path.exists("chunks.pkl") and os.path.exists("vector.index"):
+
+            with open("chunks.pkl", "rb") as f:
+                chunks = pickle.load(f)
+
+            print(f"Loaded {len(chunks)} chunks from existing database.")
+
+        else:
+
+            print("No existing vector database found.")
+
+    except Exception as e:
+
+        print("Error loading existing data:", e)
+
+
+load_existing_data()
+
+
+# =========================================================
+# ROOT
+# =========================================================
+
+@app.get("/")
+def home():
+
+    return {
+        "message": "RAG AI Assistant API is running",
+        "status": "success"
+    }
+
+
+# =========================================================
+# HEALTH
+# =========================================================
+
+@app.get("/health")
+def health():
+
+    return {
+        "status": "healthy",
+        "documents_loaded": len(chunks)
+    }
+
+
+# =========================================================
+# RATE LIMITING
+# =========================================================
 
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
@@ -80,7 +137,8 @@ async def rate_limit(request: Request, call_next):
         if now - t < 60
     ]
 
-    if len(request_times[ip]) >= 5:
+    if len(request_times[ip]) >= 30:
+
         return JSONResponse(
             status_code=429,
             content={
@@ -93,35 +151,45 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-# =====================================================
-# BACKGROUND PROCESSING
-# =====================================================
+# =========================================================
+# DOCUMENT PROCESSING
+# =========================================================
 
-def process_document(text: str):
+def process_document(text):
 
     global chunks
 
-    chunks = chunk_text(text)
+    try:
 
-    embeddings = create_embeddings(chunks)
+        new_chunks = chunk_text(text)
 
-    store_embeddings(
-        embeddings,
-        chunks
-    )
+        if not new_chunks:
+
+            print("No text chunks created.")
+
+            return
+
+        embeddings = create_embeddings(new_chunks)
+
+        store_embeddings(
+            embeddings,
+            new_chunks
+        )
+
+        chunks = new_chunks
+
+        print(
+            f"Document processed successfully: {len(chunks)} chunks"
+        )
+
+    except Exception as e:
+
+        print("Document processing error:", e)
 
 
-# =====================================================
-# QUESTION MODEL
-# =====================================================
-
-class Question(BaseModel):
-    question: str
-
-
-# =====================================================
-# UPLOAD
-# =====================================================
+# =========================================================
+# UPLOAD API
+# =========================================================
 
 @app.post("/upload")
 async def upload_file(
@@ -129,112 +197,165 @@ async def upload_file(
     background_tasks: BackgroundTasks = None
 ):
 
-    content = await file.read()
-
     filename = file.filename.lower()
 
-    if filename.endswith(".pdf"):
+    if not (
+        filename.endswith(".pdf")
+        or filename.endswith(".txt")
+    ):
 
-        text = extract_text(
-            content,
-            file_type="pdf"
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Only PDF and TXT files are allowed."
+            }
         )
 
-    elif filename.endswith(".txt"):
+    try:
 
-        text = content.decode("utf-8")
+        content = await file.read()
 
-    else:
+        if filename.endswith(".pdf"):
+
+            text = extract_text(
+                content,
+                file_type="pdf"
+            )
+
+        else:
+
+            text = content.decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+        if not text.strip():
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No readable text found in document."
+                }
+            )
+
+        background_tasks.add_task(
+            process_document,
+            text
+        )
 
         return {
-            "error": "Only PDF and TXT files are allowed"
+            "message": "File uploaded successfully.",
+            "filename": file.filename,
+            "status": "processing"
         }
 
-    if not text.strip():
+    except Exception as e:
 
-        return {
-            "error": "No text could be extracted"
-        }
-
-    background_tasks.add_task(
-        process_document,
-        text
-    )
-
-    return {
-        "message": "Upload successful. Processing started.",
-        "filename": file.filename
-    }
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": str(e)
+            }
+        )
 
 
-# =====================================================
-# GENERATE ANSWER
-# =====================================================
+# =========================================================
+# REQUEST MODEL
+# =========================================================
 
-def generate_answer(question: str, context: str):
+class Question(BaseModel):
+
+    question: str
+
+
+# =========================================================
+# GENERATE AI ANSWER
+# =========================================================
+
+def generate_answer(question, context):
+
+    # If OpenAI key is not available,
+    # return retrieved context instead.
 
     if client is None:
 
         return (
             "OpenAI API key is not configured.\n\n"
-            "Context-based answer:\n"
-            + context[:800]
+            "Relevant information from the document:\n\n"
+            + context[:1500]
         )
 
     prompt = f"""
 You are a helpful AI assistant.
 
-Answer the question using the context below.
+Answer the user's question using ONLY the provided document context.
 
-Context:
+If the answer is not present in the context, say:
+"I could not find this information in the uploaded document."
+
+Keep the answer clear and concise.
+
+DOCUMENT CONTEXT:
 {context}
 
-Question:
+USER QUESTION:
 {question}
 
-Answer clearly and concisely.
+ANSWER:
 """
 
     try:
 
         response = client.chat.completions.create(
+
             model="gpt-4o-mini",
+
             messages=[
                 {
                     "role": "user",
                     "content": prompt
                 }
-            ]
+            ],
+
+            temperature=0.2
         )
 
         return response.choices[0].message.content
 
     except Exception as e:
 
-        return f"OpenAI error: {str(e)}"
+        return (
+            "AI generation failed.\n\n"
+            f"Error: {str(e)}\n\n"
+            "Relevant document context:\n"
+            + context[:1500]
+        )
 
 
-# =====================================================
-# ASK
-# =====================================================
+# =========================================================
+# ASK API
+# =========================================================
 
 @app.post("/ask")
 def ask_question(req: Question):
 
     if not req.question.strip():
 
-        return {
-            "error": "Question cannot be empty"
-        }
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Please enter a question."
+            }
+        )
 
     if not chunks:
 
-        return {
-            "error": (
-                "Document not processed yet. "
-                "Please upload a document first."
-            )
-        }
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "No document uploaded yet. Please upload a PDF or TXT file first."
+            }
+        )
 
     try:
 
@@ -246,10 +367,12 @@ def ask_question(req: Question):
         if not top_chunks:
 
             return {
-                "error": "No relevant chunks found"
+                "question": req.question,
+                "answer": "No relevant information found.",
+                "context_used": []
             }
 
-        context = "\n".join(top_chunks)
+        context = "\n\n".join(top_chunks)
 
         answer = generate_answer(
             req.question,
@@ -257,28 +380,32 @@ def ask_question(req: Question):
         )
 
         return {
+
             "question": req.question,
+
             "answer": answer,
+
             "context_used": top_chunks
+
         }
 
     except Exception as e:
 
-        return {
-            "error": str(e)
-        }
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": str(e)
+            }
+        )
 
 
-# =====================================================
-# STATUS
-# =====================================================
+# =========================================================
+# TEST ROUTE
+# =========================================================
 
-@app.get("/status")
-def status():
+@app.get("/test")
+def test():
 
     return {
-        "api": "RAG API",
-        "status": "running",
-        "document_loaded": len(chunks) > 0,
-        "chunks": len(chunks)
+        "message": "Test route working"
     }
