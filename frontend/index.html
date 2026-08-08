@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Question Answering System</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f7fb;
+            margin: 0;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .section {
+            margin-top: 25px;
+        }
+
+        input[type="file"],
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+
+        button {
+            margin-top: 15px;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        #answer {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f1f1f1;
+            border-radius: 8px;
+            min-height: 50px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>RAG-Based Question Answering System</h1>
+
+    <div class="section">
+        <h3>Upload Document</h3>
+
+        <input type="file" id="fileInput" accept=".pdf,.txt">
+
+        <button onclick="uploadDocument()">Upload</button>
+    </div>
+
+    <div class="section">
+        <h3>Ask a Question</h3>
+
+        <input
+            type="text"
+            id="question"
+            placeholder="Ask something about your document..."
+        >
+
+        <button onclick="askQuestion()">Ask Question</button>
+
+        <div id="answer">
+            Answer will appear here...
+        </div>
+    </div>
+
+</div>
+
+<script>
+
+const API_URL = "YOUR_RENDER_BACKEND_URL";
+
+async function uploadDocument() {
+
+    const file = document.getElementById("fileInput").files[0];
+
+    if (!file) {
+        alert("Please select a PDF or TXT file.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+
+        const response = await fetch(`${API_URL}/upload`, {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+
+        alert(JSON.stringify(data));
+
+    } catch (error) {
+
+        alert("Upload failed: " + error);
+
+    }
+}
+
+
+async function askQuestion() {
+
+    const question = document.getElementById("question").value;
+
+    if (!question) {
+        alert("Please enter a question.");
+        return;
+    }
+
+    try {
+
+        const response = await fetch(`${API_URL}/ask`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                question: question
+            })
+        });
+
+        const data = await response.json();
+
+        document.getElementById("answer").innerText =
+            data.answer || JSON.stringify(data);
+
+    } catch (error) {
+
+        document.getElementById("answer").innerText =
+            "Error connecting to backend.";
+
+    }
+}
+
+</script>
+
+</body>
+</html>
