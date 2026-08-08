@@ -3,161 +3,372 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAG Question Answering System</title>
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f5f7fb;
-            margin: 0;
-            padding: 40px;
-        }
+    <title>RAG AI Assistant</title>
 
-        .container {
-            max-width: 800px;
-            margin: auto;
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-        h1 {
-            text-align: center;
-        }
-
-        .section {
-            margin-top: 25px;
-        }
-
-        input[type="file"],
-        input[type="text"] {
-            width: 100%;
-            padding: 12px;
-            margin-top: 10px;
-            box-sizing: border-box;
-        }
-
-        button {
-            margin-top: 15px;
-            padding: 12px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-
-        #answer {
-            margin-top: 20px;
-            padding: 15px;
-            background: #f1f1f1;
-            border-radius: 8px;
-            min-height: 50px;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-<div class="container">
+<div class="background-glow glow-one"></div>
+<div class="background-glow glow-two"></div>
 
-    <h1>RAG-Based Question Answering System</h1>
+<div class="app">
 
-    <div class="section">
-        <h3>Upload Document</h3>
+    <!-- SIDEBAR -->
 
-        <input type="file" id="fileInput" accept=".pdf,.txt">
+    <aside class="sidebar">
 
-        <button onclick="uploadDocument()">Upload</button>
-    </div>
+        <div class="brand">
+            <div class="brand-icon">✦</div>
 
-    <div class="section">
-        <h3>Ask a Question</h3>
+            <div>
+                <h2>RAG<span>AI</span></h2>
+                <p>Document Intelligence</p>
+            </div>
+        </div>
 
-        <input
-            type="text"
-            id="question"
-            placeholder="Ask something about your document..."
+        <div class="sidebar-section">
+
+            <p class="section-title">WORKFLOW</p>
+
+            <div class="step active">
+                <div class="step-number">1</div>
+                <div>
+                    <strong>Upload</strong>
+                    <small>Add your document</small>
+                </div>
+            </div>
+
+            <div class="step-line"></div>
+
+            <div class="step">
+                <div class="step-number">2</div>
+                <div>
+                    <strong>Process</strong>
+                    <small>Create embeddings</small>
+                </div>
+            </div>
+
+            <div class="step-line"></div>
+
+            <div class="step">
+                <div class="step-number">3</div>
+                <div>
+                    <strong>Ask</strong>
+                    <small>Query your document</small>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="sidebar-info">
+
+            <div class="info-icon">🔒</div>
+
+            <div>
+                <strong>Private Knowledge</strong>
+                <p>Your questions are answered using your uploaded document.</p>
+            </div>
+
+        </div>
+
+        <div class="sidebar-footer">
+            <span class="status-dot"></span>
+            RAG API Connected
+        </div>
+
+    </aside>
+
+
+    <!-- MAIN -->
+
+    <main class="main">
+
+        <header class="topbar">
+
+            <div>
+                <p class="eyebrow">AI DOCUMENT ASSISTANT</p>
+
+                <h1>
+                    Understand your documents
+                    <span>with AI.</span>
+                </h1>
+
+                <p class="subtitle">
+                    Upload a PDF or TXT file and ask questions directly from its content.
+                </p>
+            </div>
+
+            <div class="api-status">
+                <span class="status-dot"></span>
+                <span>Online</span>
+            </div>
+
+        </header>
+
+
+        <!-- UPLOAD CARD -->
+
+        <section class="card upload-card">
+
+            <div class="card-header">
+
+                <div class="card-title">
+
+                    <div class="title-icon upload-icon">
+                        ↑
+                    </div>
+
+                    <div>
+                        <h2>Upload Document</h2>
+                        <p>Upload a PDF or TXT file to begin.</p>
+                    </div>
+
+                </div>
+
+                <span class="badge">STEP 01</span>
+
+            </div>
+
+
+            <div class="drop-zone" id="dropZone">
+
+                <input
+                    type="file"
+                    id="fileInput"
+                    accept=".pdf,.txt"
+                    hidden
+                >
+
+                <div class="upload-symbol">
+                    ↑
+                </div>
+
+                <h3>Drop your document here</h3>
+
+                <p>
+                    or
+                    <button id="browseButton" type="button">
+                        browse files
+                    </button>
+                </p>
+
+                <span class="file-types">
+                    PDF or TXT • Max recommended size 10MB
+                </span>
+
+            </div>
+
+
+            <!-- Selected File -->
+
+            <div class="selected-file" id="selectedFile">
+
+                <div class="file-icon">📄</div>
+
+                <div class="file-details">
+
+                    <strong id="fileName">document.pdf</strong>
+
+                    <span id="fileSize">0 KB</span>
+
+                </div>
+
+                <button class="remove-file" id="removeFile">
+                    ×
+                </button>
+
+            </div>
+
+
+            <button class="primary-button" id="uploadButton">
+
+                <span>Process Document</span>
+
+                <span class="button-arrow">→</span>
+
+            </button>
+
+
+            <!-- Processing -->
+
+            <div class="processing" id="processing">
+
+                <div class="spinner"></div>
+
+                <div>
+                    <strong>Processing document...</strong>
+                    <p>Extracting text and creating embeddings.</p>
+                </div>
+
+            </div>
+
+
+            <!-- Success -->
+
+            <div class="success-message" id="successMessage">
+
+                <div class="success-icon">✓</div>
+
+                <div>
+                    <strong>Document processed successfully</strong>
+                    <p>Your document is ready for questions.</p>
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- QUESTION CARD -->
+
+        <section class="card question-card">
+
+            <div class="card-header">
+
+                <div class="card-title">
+
+                    <div class="title-icon question-icon">
+                        ?
+                    </div>
+
+                    <div>
+                        <h2>Ask a Question</h2>
+                        <p>Ask anything related to your uploaded document.</p>
+                    </div>
+
+                </div>
+
+                <span class="badge">STEP 02</span>
+
+            </div>
+
+
+            <div class="question-wrapper">
+
+                <textarea
+                    id="questionInput"
+                    placeholder="Example: What are the main points discussed in this document?"
+                    rows="4"
+                ></textarea>
+
+                <div class="question-bottom">
+
+                    <span id="characterCount">
+                        0 characters
+                    </span>
+
+                    <button
+                        class="ask-button"
+                        id="askButton"
+                    >
+                        Ask AI
+                        <span>✦</span>
+                    </button>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- ANSWER -->
+
+        <section
+            class="card answer-card"
+            id="answerCard"
         >
 
-        <button onclick="askQuestion()">Ask Question</button>
+            <div class="card-header">
 
-        <div id="answer">
-            Answer will appear here...
-        </div>
-    </div>
+                <div class="card-title">
+
+                    <div class="title-icon answer-icon">
+                        ✦
+                    </div>
+
+                    <div>
+                        <h2>AI Answer</h2>
+                        <p>Generated from your document.</p>
+                    </div>
+
+                </div>
+
+                <span class="ai-badge">
+                    AI GENERATED
+                </span>
+
+            </div>
+
+
+            <div class="answer-content">
+
+                <div class="answer-placeholder" id="answerPlaceholder">
+
+                    <div class="placeholder-icon">
+                        ✦
+                    </div>
+
+                    <p>
+                        Your answer will appear here.
+                    </p>
+
+                </div>
+
+
+                <div
+                    class="answer-result"
+                    id="answerResult"
+                ></div>
+
+            </div>
+
+
+            <div
+                class="context-section"
+                id="contextSection"
+            >
+
+                <button id="contextToggle">
+
+                    <span>View retrieved context</span>
+
+                    <span>⌄</span>
+
+                </button>
+
+                <div
+                    class="context-content"
+                    id="contextContent"
+                ></div>
+
+            </div>
+
+        </section>
+
+
+        <footer>
+
+            <span>RAG AI Assistant</span>
+
+            <span>•</span>
+
+            <span>FastAPI + FAISS + Sentence Transformers</span>
+
+        </footer>
+
+    </main>
 
 </div>
 
-<script>
-
-const API_URL = "YOUR_RENDER_BACKEND_URL";
-
-async function uploadDocument() {
-
-    const file = document.getElementById("fileInput").files[0];
-
-    if (!file) {
-        alert("Please select a PDF or TXT file.");
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-
-        const response = await fetch(`${API_URL}/upload`, {
-            method: "POST",
-            body: formData
-        });
-
-        const data = await response.json();
-
-        alert(JSON.stringify(data));
-
-    } catch (error) {
-
-        alert("Upload failed: " + error);
-
-    }
-}
-
-
-async function askQuestion() {
-
-    const question = document.getElementById("question").value;
-
-    if (!question) {
-        alert("Please enter a question.");
-        return;
-    }
-
-    try {
-
-        const response = await fetch(`${API_URL}/ask`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                question: question
-            })
-        });
-
-        const data = await response.json();
-
-        document.getElementById("answer").innerText =
-            data.answer || JSON.stringify(data);
-
-    } catch (error) {
-
-        document.getElementById("answer").innerText =
-            "Error connecting to backend.";
-
-    }
-}
-
-</script>
+<script src="script.js"></script>
 
 </body>
 </html>
