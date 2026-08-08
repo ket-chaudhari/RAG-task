@@ -6,42 +6,61 @@ import time
 import os
 
 from preprocessing import extract_text, chunk_text
-from embedding import create_embeddings, store_embeddings, search_similar
+from embedding import (
+    create_embeddings,
+    store_embeddings,
+    search_similar
+)
 
 from openai import OpenAI
 
 
 # =====================================================
-# FASTAPI APP
+# FASTAPI APPLICATION
 # =====================================================
 
-app = FastAPI()
-@app.get("/")
-def home():
-    return {"message": "RAG API is running"}
+app = FastAPI(
+    title="RAG Document Question Answering API",
+    description="Upload a PDF/TXT document and ask questions from it.",
+    version="1.0.0"
+)
+
 
 # =====================================================
-# HOME / HEALTH CHECK
+# ROOT ROUTE
 # =====================================================
 
 @app.get("/")
 def home():
     return {
-        "message": "RAG API is running"
+        "message": "RAG API is running",
+        "docs": "/docs",
+        "health": "/health"
     }
 
 
 # =====================================================
-# OPENAI CLIENT
+# HEALTH CHECK
 # =====================================================
 
-# Set your API key as an environment variable:
-# Windows CMD:
-# set OPENAI_API_KEY=your_new_api_key
+@app.get("/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "document_loaded": len(chunks) > 0
+    }
+
+
+# =====================================================
+# OPENAI CONFIGURATION
+# =====================================================
 
 api_key = os.getenv("OPENAI_API_KEY")
 
-client = OpenAI(api_key=api_key) if api_key else None
+if api_key:
+    client = OpenAI(api_key=api_key)
+else:
+    client = None
 
 
 # =====================================================
@@ -64,7 +83,8 @@ async def rate_limit(request: Request, call_next):
     now = time.time()
 
     request_times[ip] = [
-        t for t in request_times[ip]
+        t
+        for t in request_times[ip]
         if now - t < 60
     ]
 
@@ -72,13 +92,15 @@ async def rate_limit(request: Request, call_next):
         return JSONResponse(
             status_code=429,
             content={
-                "error": "Too many requests. Try later."
+                "error": "Too many requests. Try again later."
             }
         )
 
     request_times[ip].append(now)
 
-    return await call_next(request)
+    response = await call_next(request)
+
+    return response
 
 
 # =====================================================
@@ -89,18 +111,24 @@ def process_document(text: str):
 
     global chunks
 
-    chunks = chunk_text(text)
+    try:
 
-    embeddings = create_embeddings(chunks)
+        chunks = chunk_text(text)
 
-    store_embeddings(
-        embeddings,
-        chunks
-    )
+        embeddings = create_embeddings(chunks)
+
+        store_embeddings(
+            embeddings,
+            chunks
+        )
+
+    except Exception as e:
+
+        print("Document processing error:", e)
 
 
 # =====================================================
-# REQUEST MODEL
+# QUESTION MODEL
 # =====================================================
 
 class Question(BaseModel):
@@ -118,13 +146,18 @@ async def upload_file(
     background_tasks: BackgroundTasks = None
 ):
 
-    content = await file.read()
+    if not file.filename:
+        return {
+            "error": "No file selected"
+        }
 
     filename = file.filename.lower()
 
-    # -----------------------------
+    content = await file.read()
+
+    # ---------------------------------------------
     # PDF
-    # -----------------------------
+    # ---------------------------------------------
 
     if filename.endswith(".pdf"):
 
@@ -133,17 +166,25 @@ async def upload_file(
             file_type="pdf"
         )
 
-    # -----------------------------
+    # ---------------------------------------------
     # TXT
-    # -----------------------------
+    # ---------------------------------------------
 
     elif filename.endswith(".txt"):
 
-        text = content.decode("utf-8")
+        try:
 
-    # -----------------------------
+            text = content.decode("utf-8")
+
+        except UnicodeDecodeError:
+
+            return {
+                "error": "Unable to read TXT file as UTF-8"
+            }
+
+    # ---------------------------------------------
     # INVALID FILE
-    # -----------------------------
+    # ---------------------------------------------
 
     else:
 
@@ -151,9 +192,19 @@ async def upload_file(
             "error": "Only PDF and TXT files are allowed"
         }
 
-    # -----------------------------
-    # PROCESS DOCUMENT
-    # -----------------------------
+    # ---------------------------------------------
+    # CHECK EXTRACTED TEXT
+    # ---------------------------------------------
+
+    if not text or not text.strip():
+
+        return {
+            "error": "No text could be extracted from the file"
+        }
+
+    # ---------------------------------------------
+    # BACKGROUND PROCESSING
+    # ---------------------------------------------
 
     background_tasks.add_task(
         process_document,
@@ -161,36 +212,42 @@ async def upload_file(
     )
 
     return {
-        "message": "Upload successful. Processing started."
+        "message": "Upload successful. Processing started.",
+        "filename": file.filename
     }
 
 
 # =====================================================
-# LLM FUNCTION
+# LLM ANSWER GENERATION
 # =====================================================
 
-def generate_answer(question, context):
+def generate_answer(question: str, context: str):
 
-    # ---------------------------------
-    # If OpenAI key is not configured
-    # ---------------------------------
+    # ---------------------------------------------
+    # No OpenAI API key
+    # ---------------------------------------------
 
     if client is None:
 
         return (
             "OpenAI API key is not configured.\n\n"
-            "Context-based answer:\n"
-            + context[:500]
+            "Context from document:\n"
+            + context[:800]
         )
 
-    # ---------------------------------
+    # ---------------------------------------------
     # Prompt
-    # ---------------------------------
+    # ---------------------------------------------
 
     prompt = f"""
 You are a helpful AI assistant.
 
-Use the context below to answer the question.
+Answer the user's question using ONLY the
+information provided in the context.
+
+If the answer cannot be found in the context,
+say that the information is not available
+in the uploaded document.
 
 Context:
 {context}
@@ -201,49 +258,65 @@ Question:
 Answer clearly and concisely.
 """
 
-    # ---------------------------------
-    # OpenAI request
-    # ---------------------------------
+    # ---------------------------------------------
+    # OpenAI API
+    # ---------------------------------------------
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    try:
 
-    return response.choices[0].message.content
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+
+        return f"LLM error: {str(e)}"
 
 
 # =====================================================
 # ASK API
-# RAG CORE
 # =====================================================
 
 @app.post("/ask")
 def ask_question(req: Question):
 
-    # ---------------------------------
-    # STEP 1: Check document
-    # ---------------------------------
+    # ---------------------------------------------
+    # Check question
+    # ---------------------------------------------
+
+    if not req.question.strip():
+
+        return {
+            "error": "Question cannot be empty"
+        }
+
+    # ---------------------------------------------
+    # Check document
+    # ---------------------------------------------
 
     if not chunks:
 
         return {
             "error": (
                 "Document not processed yet. "
-                "Please wait after upload."
+                "Please upload a PDF/TXT document first "
+                "and wait for processing to complete."
             )
         }
 
     try:
 
-        # ---------------------------------
-        # STEP 2: Retrieval
-        # ---------------------------------
+        # -----------------------------------------
+        # Semantic search
+        # -----------------------------------------
 
         top_chunks = search_similar(
             req.question,
@@ -256,24 +329,24 @@ def ask_question(req: Question):
                 "error": "No relevant chunks found in document"
             }
 
-        # ---------------------------------
-        # STEP 3: Create context
-        # ---------------------------------
+        # -----------------------------------------
+        # Create context
+        # -----------------------------------------
 
-        context = "\n".join(top_chunks)
+        context = "\n\n".join(top_chunks)
 
-        # ---------------------------------
-        # STEP 4: Generate answer
-        # ---------------------------------
+        # -----------------------------------------
+        # Generate answer
+        # -----------------------------------------
 
         answer = generate_answer(
             req.question,
             context
         )
 
-        # ---------------------------------
-        # STEP 5: Return response
-        # ---------------------------------
+        # -----------------------------------------
+        # Response
+        # -----------------------------------------
 
         return {
             "question": req.question,
@@ -289,15 +362,15 @@ def ask_question(req: Question):
 
 
 # =====================================================
-# HEALTH CHECK
+# SERVER INFORMATION
 # =====================================================
 
-@app.get("/health")
-def health_check():
+@app.get("/status")
+def status():
 
     return {
-        "status": "healthy",
-        "document_loaded": bool(chunks)
+        "api": "RAG API",
+        "status": "running",
+        "document_loaded": len(chunks) > 0,
+        "chunks": len(chunks)
     }
-    app = FastAPI()
-    
