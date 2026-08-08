@@ -297,3 +297,5 @@ def health_check():
         "status": "healthy",
         "document_loaded": bool(chunks)
     }
+    app = FastAPI()
+    
