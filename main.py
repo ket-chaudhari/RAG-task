@@ -16,7 +16,9 @@ from openai import OpenAI
 # =====================================================
 
 app = FastAPI()
-
+@app.get("/")
+def home():
+    return {"message": "RAG API is running"}
 
 # =====================================================
 # HOME / HEALTH CHECK
